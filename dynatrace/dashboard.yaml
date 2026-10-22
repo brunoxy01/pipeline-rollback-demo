@@ -71,6 +71,11 @@ content:
       w: 40
       x: 0
       "y": 7
+    "15":
+      h: 7
+      w: 40
+      x: 0
+      "y": 28
   settings:
     defaultTimeframe:
       enabled: true
@@ -367,6 +372,27 @@ content:
     "14":
       content: '--- '
       type: markdown
+    "15":
+      type: data
+      title: "🔗 Abrir a validação do SRG de cada evento"
+      query: |-
+        fetch bizevents
+        | filter event.type == "rollback.demo.validation" and service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | fieldsAdd resultado = if(validation.status == "pass", "🟢 pass", else: if(validation.status == "warning", "🟡 warning", else: "🔴 fail"))
+        | fieldsAdd etapa = if(deployment.type == "rollback", "↩️ pós-rollback", else: "🚀 pós-deploy")
+        | fieldsAdd link_srg = concat($TenantUrl, "/ui/intent/dynatrace.site.reliability.guardian/view_validation#%7B%22guardian.id%22%3A%22", guardian.id, "%22%2C%22validation.id%22%3A%22", validation.id, "%22%7D")
+        | fields timestamp, etapa, resultado, deployment.id, link_srg
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+      visualizationSettings:
+        table:
+          columnTypeOverrides:
+            - id: 1
+              fields:
+                - link_srg
+              value: link
   variables:
     - defaultValue: demo-app
       input: |-
@@ -380,6 +406,18 @@ content:
       type: query
       version: 3
       visible: true
+    - key: TenantUrl
+      name: TenantUrl
+      type: code
+      version: 1
+      visible: false
+      multiple: false
+      input: |-
+        import { getEnvironmentUrl } from "@dynatrace-sdk/app-environment"
+
+        export default function () {
+          return [getEnvironmentUrl()];
+        }
   version: 21
 id: beaedfce-e114-4425-8fc0-1f19517e424b
 isPrivate: true

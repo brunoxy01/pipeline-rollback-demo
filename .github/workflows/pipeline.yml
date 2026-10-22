@@ -65,7 +65,11 @@ jobs:
     needs: test
     if: ${{ always() && !cancelled() && needs.build.result != 'failure' && needs.test.result != 'failure' }}
     runs-on: [self-hosted, rollback-demo]
+    outputs:
+      inicio: ${{ steps.inicio.outputs.epoch }}
     steps:
+      - id: inicio
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - name: Deploy do demo-app no k3s
         run: |
@@ -126,5 +130,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ inputs.fail_rate || '0' }}" = "0" ]; then NEXT=0.5; else NEXT=0; fi
-          sleep 30
+          # Cadência: uma nova execução a cada 5 min (do início de uma ao início da outra).
+          ELAPSED=$(( $(date +%s) - ${{ needs.deploy.outputs.inicio || 0 }} ))
+          WAIT=$(( 300 - ELAPSED ))
+          if [ "$WAIT" -gt 0 ] && [ "$WAIT" -le 300 ]; then sleep "$WAIT"; fi
           gh workflow run pipeline.yml --repo "${{ github.repository }}" -f fail_rate="$NEXT" -f continuo=true

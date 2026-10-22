@@ -8,11 +8,11 @@ app = ARGV[1] || "demo-app"
 dash = YAML.load_file(file)["content"]
 failed = 0
 
-queries = dash["variables"].map { |v| ["variavel #{v['key']}", v["input"]] }
+queries = dash["variables"].select { |v| v["type"] == "query" }.map { |v| ["variavel #{v['key']}", v["input"]] }
 queries += dash["tiles"].sort_by { |k, _| k.to_i }.select { |_, t| t["type"] == "data" }.map { |_, t| [t["title"], t["query"]] }
 
 queries.each do |title, q|
-  q = q.gsub("$App", "\"#{app}\"")
+  q = q.gsub("$App", "\"#{app}\"").gsub("$TenantUrl", "\"https://example.apps.dynatrace.com\"")
   out, st = Open3.capture2e("dtctl", "query", q, "-o", "csv")
   lines = out.strip.lines
   bad = !st.success? || out.include?("isn't allowed") || out.include?("\"ok\": false") || out.include?("error")
