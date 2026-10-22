@@ -3,9 +3,6 @@ name: Rollback Demo | Pipeline
 on:
   push:
     branches: [main]
-  schedule:
-    # Vigia: se o ciclo contínuo parar por algum motivo, este agendamento o reinicia.
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       fail_rate:
@@ -60,10 +57,7 @@ jobs:
     name: Deploy, validação SRG e rollback
     needs: test
     if: ${{ always() && !cancelled() && needs.build.result != 'failure' && needs.test.result != 'failure' }}
-    # Fila só no deploy: assim builds de push não são cancelados por execuções do ciclo.
-    concurrency:
-      group: rollback-demo-deploy
-      cancel-in-progress: false
+    # O runner self-hosted executa um job por vez, o que já serializa os deploys.
     runs-on: [self-hosted, rollback-demo]
     outputs:
       inicio: ${{ steps.inicio.outputs.epoch }}
@@ -133,7 +127,7 @@ jobs:
   proximo-ciclo:
     name: Próximo ciclo (loop contínuo)
     needs: deploy
-    if: ${{ always() && (github.event_name == 'schedule' || inputs.continuo == true) }}
+    if: ${{ always() && inputs.continuo == true && needs.deploy.result != 'cancelled' && needs.deploy.result != 'skipped' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
