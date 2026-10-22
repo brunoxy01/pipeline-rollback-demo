@@ -1,0 +1,9 @@
+#cloud-config
+package_update: true
+packages: [curl, jq, gettext-base, git, ca-certificates]
+runcmd:
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+  - mkdir -p /home/azureuser/.kube
+  - cp /etc/rancher/k3s/k3s.yaml /home/azureuser/.kube/config
+  - chown -R azureuser:azureuser /home/azureuser/.kube
+  - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash

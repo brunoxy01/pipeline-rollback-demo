@@ -46,13 +46,9 @@ jobs:
 
   deploy:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, rollback-demo]
     steps:
       - uses: actions/checkout@v4
-      - name: Configurar kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
       - name: Deploy
         run: |
           scripts/send-sdlc-event.sh started deploy pending
