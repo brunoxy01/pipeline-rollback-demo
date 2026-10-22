@@ -81,6 +81,8 @@ tasks:
               data: {
                 'deployment.id': event['deployment.id'],
                 'deployment.type': event['deployment.type'],
+                'service': event['service'],
+                'product': event['product'],
                 'release.version': event['release.version'],
                 'validation.id': result.validation_id,
                 'validation.status': result.validation_status,

@@ -1,0 +1,262 @@
+id: beaedfce-e114-4425-8fc0-1f19517e424b
+name: "Rollback Demo | Rollbacks e saúde pós-rollback"
+type: dashboard
+content:
+  version: 19
+  settings:
+    gridLayout:
+      columnsCount: 40
+      mode: responsive
+    defaultTimeframe:
+      enabled: true
+      value:
+        from: now()-7d
+        to: now()
+  variables:
+    - key: App
+      type: query
+      version: 1
+      visible: true
+      multiple: false
+      defaultValue: demo-app
+      input: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and product == "rollback-demo" and isNotNull(service)
+        | summarize n = count(), by:{service}
+        | fields service
+  tiles:
+    "1":
+      type: markdown
+      content: |
+        ## Rollbacks automatizados | quantidade e saúde
+        Cada deploy é validado pelo **Site Reliability Guardian**. Se reprovar, a pipeline faz **rollback automático** e o SRG valida a saúde de novo (🟢 pass, 🟡 warning, 🔴 fail). Use o filtro **App** para escolher o serviço e o seletor de tempo para a janela.
+    "2":
+      type: data
+      title: Deploys
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | summarize deploys = countIf(deployment.type == "deploy")
+      visualization: singleValue
+      visualizationSettings:
+        singleValue:
+          showLabel: false
+          recordField: deploys
+          autoscale: true
+    "3":
+      type: data
+      title: Rollbacks automáticos
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | summarize rollbacks = countIf(deployment.type == "rollback")
+      visualization: singleValue
+      visualizationSettings:
+        singleValue:
+          showLabel: false
+          recordField: rollbacks
+          autoscale: true
+          colorThresholdTarget: background
+        thresholds:
+          - field: rollbacks
+            id: "0"
+            isEnabled: true
+            title: ""
+            rules:
+              - id: 1
+                comparator: ">"
+                value: 0
+                label: ""
+                color:
+                  Default: "#cd8100"
+    "4":
+      type: data
+      title: Taxa de rollback (% dos deploys)
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | summarize deploys = countIf(deployment.type == "deploy"), rollbacks = countIf(deployment.type == "rollback")
+        | fieldsAdd rollback_rate_pct = if(deploys > 0, 100.0 * rollbacks / deploys, else: 0.0)
+        | fields rollback_rate_pct
+      visualization: singleValue
+      visualizationSettings:
+        singleValue:
+          showLabel: false
+          recordField: rollback_rate_pct
+          autoscale: true
+    "5":
+      type: data
+      title: Saúde pós-rollback (% de validações saudáveis)
+      query: |-
+        fetch bizevents
+        | filter event.type == "rollback.demo.validation" and deployment.type == "rollback"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | summarize healthy = countIf(validation.status == "pass" or validation.status == "warning"), total = count()
+        | fieldsAdd post_rollback_health_pct = if(total > 0, 100.0 * healthy / total, else: 0.0)
+        | fields post_rollback_health_pct
+      visualization: singleValue
+      visualizationSettings:
+        singleValue:
+          showLabel: false
+          recordField: post_rollback_health_pct
+          autoscale: true
+          colorThresholdTarget: background
+        thresholds:
+          - field: post_rollback_health_pct
+            id: "0"
+            isEnabled: true
+            title: ""
+            rules:
+              - id: 1
+                comparator: ">="
+                value: 90
+                label: ""
+                color:
+                  Default: "#2a7453"
+              - id: 2
+                comparator: "<"
+                value: 90
+                label: ""
+                color:
+                  Default: "#c4233b"
+    "6":
+      type: data
+      title: Tempo médio até o rollback concluir (s)
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and product == "rollback-demo" and service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | fieldsAdd t_dep = if(deployment.type == "deploy" and event.type == "finished", timestamp),
+                    t_rb = if(deployment.type == "rollback" and event.type == "finished", timestamp)
+        | summarize dep = min(t_dep), rb = max(t_rb), by:{task.id}
+        | filter isNotNull(rb) and isNotNull(dep)
+        | fieldsAdd seconds_to_rollback = toDouble(rb - dep) / 1000000000
+        | summarize avg_seconds_to_rollback = avg(seconds_to_rollback)
+      visualization: singleValue
+      visualizationSettings:
+        singleValue:
+          showLabel: false
+          recordField: avg_seconds_to_rollback
+          autoscale: true
+    "7":
+      type: data
+      title: Deploys e rollbacks ao longo do tempo
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | makeTimeseries count = count(), by:{deployment.type}, interval: 30m
+      visualization: barChart
+    "8":
+      type: data
+      title: Resultado das validações do SRG (deploy x rollback)
+      query: |-
+        fetch bizevents
+        | filter event.type == "rollback.demo.validation" and service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | summarize validations = count(), by:{deployment.type, validation.status}
+      visualization: categoricalBarChart
+    "9":
+      type: data
+      title: Últimas validações do SRG
+      query: |-
+        fetch bizevents
+        | filter event.type == "rollback.demo.validation" and service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | fieldsAdd resultado = if(validation.status == "pass", "🟢 pass", else: if(validation.status == "warning", "🟡 warning", else: "🔴 fail"))
+        | fieldsAdd etapa = if(deployment.type == "rollback", "↩️ pós-rollback", else: "🚀 pós-deploy")
+        | fields timestamp, etapa, resultado, deployment.id, release.version
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+    "10":
+      type: data
+      title: Linha do tempo de deploys e rollbacks
+      query: |-
+        fetch events
+        | filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"
+        | filter service == $App
+        | filter not startsWith(deployment.id, "trigger-test") and not startsWith(deployment.id, "corr-test")
+        | fieldsAdd evento = if(deployment.type == "rollback", "↩️ rollback", else: "🚀 deploy")
+        | fields timestamp, evento, deployment.id, release.version
+        | sort timestamp desc
+        | limit 20
+      visualization: table
+    "11":
+      type: data
+      title: Objetivos do guardian nas últimas validações
+      query: |-
+        fetch bizevents
+        | filter event.provider == "dynatrace.site.reliability.guardian" and event.type == "guardian.validation.objective"
+        | filter contains(toString(guardian.tags), "rollback-demo")
+        | parse guardian.objective, "JSON:o"
+        | fieldsAdd objective = o[name], status = o[status], value = o[value]
+        | fieldsAdd resultado = if(status == "pass", "🟢 pass", else: if(status == "warning", "🟡 warning", else: "🔴 fail"))
+        | fields timestamp, validation.id, objective, resultado, value
+        | sort timestamp desc
+        | limit 24
+      visualization: table
+  layouts:
+    "1":
+      x: 0
+      "y": 0
+      w: 40
+      h: 2
+    "2":
+      x: 0
+      "y": 2
+      w: 10
+      h: 4
+    "3":
+      x: 10
+      "y": 2
+      w: 10
+      h: 4
+    "4":
+      x: 20
+      "y": 2
+      w: 10
+      h: 4
+    "5":
+      x: 30
+      "y": 2
+      w: 10
+      h: 4
+    "6":
+      x: 0
+      "y": 6
+      w: 14
+      h: 4
+    "7":
+      x: 14
+      "y": 6
+      w: 26
+      h: 6
+    "8":
+      x: 0
+      "y": 10
+      w: 14
+      h: 6
+    "9":
+      x: 14
+      "y": 12
+      w: 26
+      h: 7
+    "10":
+      x: 0
+      "y": 19
+      w: 20
+      h: 7
+    "11":
+      x: 20
+      "y": 19
+      w: 20
+      h: 7

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Aguarda o resultado do SRG para o deployment atual, correlacionado pelo deployment.id.
-# Sai com 0 se "pass", 1 se "fail"/"warning"/"error" ou timeout.
+# Sai com 0 se "pass" ou "warning", 1 se "fail"/"error" ou timeout.
 # Uso: wait-srg.sh <deploy|rollback>
 set -euo pipefail
 
@@ -41,8 +41,8 @@ run_query() {
 while [ $SECONDS -lt $DEADLINE ]; do
   STATUS=$(run_query || true)
   case "$STATUS" in
-    pass) echo "SRG (${DEPLOYMENT_ID}): pass"; exit 0 ;;
-    fail|warning|error) echo "SRG (${DEPLOYMENT_ID}): ${STATUS}"; exit 1 ;;
+    pass|warning) echo "SRG (${DEPLOYMENT_ID}): ${STATUS} (saudável)"; exit 0 ;;
+    fail|error) echo "SRG (${DEPLOYMENT_ID}): ${STATUS}"; exit 1 ;;
   esac
   echo "Aguardando resultado do SRG para ${DEPLOYMENT_ID}..."
   sleep 15

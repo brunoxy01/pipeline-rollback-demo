@@ -4,12 +4,17 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 */2 * * *"
+    # Ciclo da demo: 2 deploys saudáveis e 1 com falha forçada (rollback automático), a cada 30 min.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       fail_rate:
         description: "Taxa de erro simulada (0 a 1). Use 0.5 para forçar rollback."
         default: "0"
+
+concurrency:
+  group: rollback-demo
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}/demo-app
@@ -54,6 +59,12 @@ jobs:
     runs-on: [self-hosted, rollback-demo]
     steps:
       - uses: actions/checkout@v4
+      - name: Definir cenário do ciclo (a cada 3ª execução agendada, falha forçada)
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ $((GITHUB_RUN_NUMBER % 3)) -eq 0 ]; then
+            echo "FAIL_RATE=0.5" >> "$GITHUB_ENV"
+            echo "::notice title=Cenário::Deploy com falha forçada (FAIL_RATE=0.5) para demonstrar o rollback"
+          fi
       - name: Deploy do demo-app no k3s
         run: |
           scripts/send-sdlc-event.sh started deploy pending
@@ -89,6 +100,13 @@ jobs:
       - name: Validar saúde pós-rollback (SRG)
         if: steps.srg.outcome == 'failure'
         run: scripts/wait-srg.sh rollback
-      - name: Sinalizar rollback (falha o job de propósito)
-        if: steps.srg.outcome == 'failure'
-        run: exit 1
+      - name: Resumo do ciclo
+        if: always() && steps.srg.outcome != 'skipped'
+        run: |
+          if [ "${{ steps.srg.outcome }}" = "failure" ]; then
+            echo "### ↩️ Rollback automático executado" >> "$GITHUB_STEP_SUMMARY"
+            echo "O SRG reprovou o deploy ${GITHUB_RUN_ID}; a versão anterior foi restaurada e validada de novo." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Deploy saudável" >> "$GITHUB_STEP_SUMMARY"
+            echo "O SRG aprovou o deploy ${GITHUB_RUN_ID}; nenhum rollback necessário." >> "$GITHUB_STEP_SUMMARY"
+          fi
