@@ -18,7 +18,15 @@ function handler(req, res) {
 }
 
 if (require.main === module) {
-  http.createServer(handler).listen(8080, () => console.log(`v${VERSION} on :8080`));
+  const server = http.createServer(handler).listen(8080, () => console.log(`v${VERSION} on :8080`));
+  // Como PID 1 do container, o Node não encerra sozinho no SIGTERM; sem isso o pod espera o prazo de 30s.
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.on(signal, () => {
+      server.close(() => process.exit(0));
+      server.closeIdleConnections();
+      setTimeout(() => process.exit(0), 3000).unref();
+    });
+  }
 }
 
 module.exports = { handler };

@@ -16,10 +16,6 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: rollback-demo
-  cancel-in-progress: false
-
 env:
   IMAGE: ghcr.io/${{ github.repository }}/demo-app
   APP_VERSION: ${{ github.sha }}
@@ -64,6 +60,10 @@ jobs:
     name: Deploy, validação SRG e rollback
     needs: test
     if: ${{ always() && !cancelled() && needs.build.result != 'failure' && needs.test.result != 'failure' }}
+    # Fila só no deploy: assim builds de push não são cancelados por execuções do ciclo.
+    concurrency:
+      group: rollback-demo-deploy
+      cancel-in-progress: false
     runs-on: [self-hosted, rollback-demo]
     outputs:
       inicio: ${{ steps.inicio.outputs.epoch }}
@@ -71,6 +71,19 @@ jobs:
       - id: inicio
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+      - name: Aguardar a imagem do commit estar publicada
+        run: |
+          REPO="${GITHUB_REPOSITORY,,}/demo-app"
+          TOKEN=$(curl -fsS "https://ghcr.io/token?scope=repository:${REPO}:pull" | jq -r .token)
+          for _ in $(seq 1 40); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+              "https://ghcr.io/v2/${REPO}/manifests/${APP_VERSION}")
+            [ "$CODE" = "200" ] && exit 0
+            echo "Imagem ${APP_VERSION} ainda não disponível (HTTP ${CODE}); aguardando..."
+            sleep 10
+          done
+          echo "Imagem não encontrada"; exit 1
       - name: Deploy do demo-app no k3s
         run: |
           scripts/send-sdlc-event.sh started deploy pending

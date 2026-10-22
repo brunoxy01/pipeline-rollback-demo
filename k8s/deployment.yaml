@@ -10,6 +10,11 @@ metadata:
 spec:
   replicas: 2
   revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: demo-app
@@ -20,6 +25,7 @@ spec:
         app.kubernetes.io/version: "${APP_VERSION}"
         app.kubernetes.io/part-of: rollback-demo
     spec:
+      terminationGracePeriodSeconds: 10
       containers:
         - name: demo-app
           image: "${IMAGE}"
@@ -41,6 +47,9 @@ spec:
                   fieldPath: metadata.labels['app.kubernetes.io/part-of']
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
           resources:
             requests: { cpu: 50m, memory: 64Mi }
             limits: { cpu: 200m, memory: 128Mi }
