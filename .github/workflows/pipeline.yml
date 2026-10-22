@@ -13,7 +13,7 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}/demo-app
   APP_VERSION: ${{ github.sha }}
   FAIL_RATE: ${{ inputs.fail_rate || '0' }}
-  DT_ENV_URL: ${{ vars.DT_ENV_URL }}
+  DT_ENV_URL: ${{ vars.DT_ENV_URL || secrets.DT_ENV_URL }}
   DT_CLIENT_ID: ${{ secrets.DT_CLIENT_ID }}
   DT_CLIENT_SECRET: ${{ secrets.DT_CLIENT_SECRET }}
   DT_ACCOUNT_URN: ${{ secrets.DT_ACCOUNT_URN }}
@@ -57,6 +57,7 @@ jobs:
         run: |
           scripts/send-sdlc-event.sh started deploy pending
           export IMAGE="${IMAGE}:${APP_VERSION}"
+          kubectl apply -f k8s/namespace.yaml
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           kubectl -n rollback-demo rollout status deploy/demo-app --timeout=180s
           scripts/send-sdlc-event.sh finished deploy success
