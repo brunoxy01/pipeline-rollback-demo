@@ -6,14 +6,15 @@ set -euo pipefail
 
 KIND="$1"
 source "$(dirname "$0")/lib.sh"
-DEPLOYMENT_ID="${GITHUB_RUN_ID}-${KIND}"
 TIMEOUT="${SRG_TIMEOUT_SECONDS:-600}"
 DEADLINE=$((SECONDS + TIMEOUT))
+# Horário de início do deploy/rollback; só resultados posteriores a ele valem.
+SINCE="${SRG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
-# Ajuste o filtro conforme o evento emitido pela ação do SRG no seu tenant.
-QUERY="fetch bizevents
-| filter event.type == \"guardian.validation.finished\"
-| filter contains(toString(validation.id), \"${DEPLOYMENT_ID}\") or contains(toString(execution_context), \"${DEPLOYMENT_ID}\")
+QUERY="fetch bizevents, from: now()-1h
+| filter event.provider == \"dynatrace.site.reliability.guardian\" and event.type == \"guardian.validation.finished\"
+| filter timestamp >= toTimestamp(\"${SINCE}\")
+| filter contains(toString(guardian.name), \"rollback-demo\")
 | sort timestamp desc
 | limit 1
 | fields validation.status"

@@ -1,0 +1,59 @@
+title: Rollback Demo - validar deploy e rollback com SRG
+description: Dispara o guardian rollback-demo-guardian quando o deploy ou o rollback do demo-app termina.
+private: false
+trigger:
+  eventTrigger:
+    isActive: true
+    filterQuery: 'event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"'
+    triggerConfiguration:
+      type: event
+      value:
+        eventType: events
+        query: 'event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"'
+    uniqueExpression: null
+tasks:
+  wait_1:
+    name: wait_1
+    action: dynatrace.automations:run-javascript
+    description: Aguarda o trafego pos-deploy gerar metricas.
+    input:
+      script: |
+        export default async function () {
+          await new Promise((resolve) => setTimeout(resolve, 100000));
+          return {};
+        }
+    position:
+      x: 0
+      "y": 1
+    predecessors: []
+  wait_2:
+    name: wait_2
+    action: dynatrace.automations:run-javascript
+    description: Segunda espera (limite de execucao por tarefa).
+    input:
+      script: |
+        export default async function () {
+          await new Promise((resolve) => setTimeout(resolve, 100000));
+          return {};
+        }
+    position:
+      x: 0
+      "y": 2
+    predecessors:
+      - wait_1
+  run_validation:
+    name: run_validation
+    action: dynatrace.site.reliability.guardian:validate-guardian-action
+    description: Executa o guardian rollback-demo-guardian sobre os ultimos 3 minutos.
+    input:
+      executionId: '{{ execution().id }}'
+      objectId: vu9U3hXa3q0AAAABADFhcHA6ZHluYXRyYWNlLnNpdGUucmVsaWFiaWxpdHkuZ3VhcmRpYW46Z3VhcmRpYW5zAAZ0ZW5hbnQABnRlbmFudAAkN2M5YzQ3ZmYtMWRmZC0zMGUyLWFkMjUtMTM3ZTZiODMxODc4vu9U3hXa3q0
+      timeframeInputType: timeframeSelector
+      timeframeSelector:
+        from: now-3m
+        to: now
+    position:
+      x: 0
+      "y": 3
+    predecessors:
+      - wait_2

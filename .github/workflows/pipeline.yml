@@ -56,7 +56,14 @@ jobs:
           kubectl apply -f k8s/namespace.yaml
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           kubectl -n rollback-demo rollout status deploy/demo-app --timeout=180s
+          echo "SRG_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           scripts/send-sdlc-event.sh finished deploy success
+      # O OneAgent só gera métricas de serviço se houver requisições.
+      - name: Gerar tráfego
+        run: |
+          IP=$(kubectl -n rollback-demo get svc demo-app -o jsonpath='{.spec.clusterIP}')
+          end=$((SECONDS + ${TRAFFIC_SECONDS:-180}))
+          while [ $SECONDS -lt $end ]; do curl -s -o /dev/null "http://${IP}/" || true; sleep 0.2; done
       # O evento SDLC dispara o workflow do Dynatrace que executa o SRG.
       - name: Validar deploy com SRG
         id: srg
@@ -68,7 +75,14 @@ jobs:
           scripts/send-sdlc-event.sh started rollback pending
           kubectl -n rollback-demo rollout undo deploy/demo-app
           kubectl -n rollback-demo rollout status deploy/demo-app --timeout=180s
+          echo "SRG_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           scripts/send-sdlc-event.sh finished rollback success
+      - name: Gerar tráfego pós-rollback
+        if: steps.srg.outcome == 'failure'
+        run: |
+          IP=$(kubectl -n rollback-demo get svc demo-app -o jsonpath='{.spec.clusterIP}')
+          end=$((SECONDS + ${TRAFFIC_SECONDS:-180}))
+          while [ $SECONDS -lt $end ]; do curl -s -o /dev/null "http://${IP}/" || true; sleep 0.2; done
       - name: Validar rollback com SRG
         if: steps.srg.outcome == 'failure'
         run: scripts/wait-srg.sh rollback

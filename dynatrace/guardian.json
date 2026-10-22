@@ -1,0 +1,51 @@
+{
+  "name": "rollback-demo-guardian",
+  "description": "Valida a saude do demo-app apos deploy e apos rollback.",
+  "tags": ["rollback-demo"],
+  "variables": [],
+  "objectives": [
+    {
+      "name": "Taxa de erro HTTP (%)",
+      "description": "Percentual de requisicoes com falha no demo-app durante a janela de validacao. Principal gatilho para o rollback.",
+      "objectiveType": "DQL",
+      "dqlQuery": "timeseries { errors = sum(dt.service.request.failure_count), total = sum(dt.service.request.count) },\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd error_rate = 100 * arraySum(errors) / arraySum(total)\n| fields error_rate",
+      "comparisonOperator": "LESS_THAN_OR_EQUAL",
+      "warning": 1,
+      "target": 3,
+      "links": [],
+      "segments": []
+    },
+    {
+      "name": "Latencia p95 (ms)",
+      "description": "Tempo de resposta no percentil 95 do demo-app. Detecta regressao de performance mesmo sem erros.",
+      "objectiveType": "DQL",
+      "dqlQuery": "timeseries p95 = percentile(dt.service.request.response_time, 95),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd p95_ms = arrayMax(p95) / 1000\n| fields p95_ms",
+      "comparisonOperator": "LESS_THAN_OR_EQUAL",
+      "warning": 500,
+      "target": 800,
+      "links": [],
+      "segments": []
+    },
+    {
+      "name": "Throughput (req/min)",
+      "description": "Requisicoes por minuto recebidas pelo demo-app. Valor baixo indica servico fora do ar ou sem trafego, e reprova a validacao.",
+      "objectiveType": "DQL",
+      "dqlQuery": "timeseries req = sum(dt.service.request.count, rate: 1m),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd requests_per_min = arrayAvg(req)\n| fields requests_per_min",
+      "comparisonOperator": "GREATER_THAN_OR_EQUAL",
+      "target": 5,
+      "links": [],
+      "segments": []
+    },
+    {
+      "name": "Uso de memoria (%)",
+      "description": "Pico de memoria em relacao ao limite de 128Mi do container. Detecta vazamento antes de causar OOMKill.",
+      "objectiveType": "DQL",
+      "dqlQuery": "timeseries mem = avg(dt.kubernetes.container.memory_working_set),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd mem_pct = arrayMax(mem) / (128 * 1024 * 1024) * 100\n| fields mem_pct",
+      "comparisonOperator": "LESS_THAN_OR_EQUAL",
+      "warning": 80,
+      "target": 90,
+      "links": [],
+      "segments": []
+    }
+  ]
+}
