@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: rollback-demo
+  labels:
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/version: "${APP_VERSION}"
+    app.kubernetes.io/part-of: rollback-demo
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo-app
+        app.kubernetes.io/version: "${APP_VERSION}"
+        app.kubernetes.io/part-of: rollback-demo
+    spec:
+      containers:
+        - name: demo-app
+          image: "${IMAGE}"
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: "${APP_VERSION}"
+            - name: FAIL_RATE
+              value: "${FAIL_RATE}"
+            # Variáveis usadas pelo Dynatrace Release Monitoring
+            - name: DT_RELEASE_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/version']
+            - name: DT_RELEASE_PRODUCT
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/part-of']
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: rollback-demo
+spec:
+  selector:
+    app.kubernetes.io/name: demo-app
+  ports:
+    - port: 80
+      targetPort: 8080

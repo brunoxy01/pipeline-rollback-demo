@@ -1,0 +1,29 @@
+// 1) Quantidade de rollbacks por dia e serviço
+fetch events
+| filter event.kind == "SDLC_EVENT" and event.category == "deployment"
+| filter deployment.type == "rollback" and event.type == "finished"
+| makeTimeseries rollbacks = count(), by:{service, environment}, interval:1d
+
+// 2) Taxa de rollback (rollbacks / deploys)
+fetch events
+| filter event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished"
+| summarize deploys = countIf(deployment.type == "deploy"),
+            rollbacks = countIf(deployment.type == "rollback"),
+            by:{service, environment}
+| fieldsAdd rollback_rate_pct = 100.0 * rollbacks / deploys
+
+// 3) Saúde do rollback: resultado do SRG executado após cada rollback
+//    (ajuste event.type/campos conforme o evento emitido pelo SRG no seu tenant)
+fetch bizevents
+| filter event.type == "guardian.validation.finished"
+| filter contains(toString(execution_context), "rollback")
+| summarize healthy = countIf(validation.status == "pass"),
+            unhealthy = countIf(validation.status != "pass")
+| fieldsAdd rollback_health_pct = 100.0 * healthy / (healthy + unhealthy)
+
+// 4) Tempo de rollback (MTTR): do início ao fim do evento de rollback
+fetch events
+| filter event.kind == "SDLC_EVENT" and deployment.type == "rollback"
+| summarize start = min(timestamp), end = max(timestamp), by:{deployment.id}
+| fieldsAdd duration_s = toDouble(end - start) / 1000000000
+| summarize avg_rollback_duration_s = avg(duration_s)

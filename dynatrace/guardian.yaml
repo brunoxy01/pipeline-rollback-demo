@@ -1,0 +1,36 @@
+# Referência dos objetivos do SRG. Crie o guardian no app Site Reliability Guardian
+# com estes objetivos (ou importe/ajuste via JSON exportado do tenant).
+name: rollback-demo-guardian
+description: Valida saúde pós-deploy e pós-rollback do demo-app
+timeframe: 10m   # janela de avaliação após o evento de deployment
+on_missing_data: fail   # sem dados = falha (decisão auditável)
+objectives:
+  - name: Taxa de erro HTTP
+    dql: |
+      timeseries errors = sum(dt.service.request.failure_count),
+                 total  = sum(dt.service.request.count),
+                 filter: {dt.entity.service.name == "demo-app"}
+      | fieldsAdd error_rate = 100 * errors[] / total[]
+      | fieldsAdd value = arrayAvg(error_rate)
+    pass: "<= 1"
+    warning: "<= 3"
+  - name: Latência p95 (ms)
+    dql: |
+      timeseries p95 = percentile(dt.service.request.response_time, 95),
+                 filter: {dt.entity.service.name == "demo-app"}
+      | fieldsAdd value = arrayAvg(p95) / 1000
+    pass: "<= 500"
+    warning: "<= 800"
+  - name: Container restarts
+    dql: |
+      timeseries r = sum(dt.kubernetes.container.restarts),
+                 filter: {k8s.namespace.name == "rollback-demo"}
+      | fieldsAdd value = arraySum(r)
+    pass: "<= 0"
+  - name: Uso de memória (%)
+    dql: |
+      timeseries m = avg(dt.kubernetes.container.memory_working_set),
+                 filter: {k8s.namespace.name == "rollback-demo"}
+      | fieldsAdd value = arrayAvg(m) / (128 * 1024 * 1024) * 100
+    pass: "<= 80"
+    warning: "<= 90"
