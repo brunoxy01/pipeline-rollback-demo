@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Aguarda o resultado da validação do SRG para o deployment atual.
-# Sai com 0 se "pass", 1 se "fail"/"warning" ou timeout.
+# Aguarda o resultado do SRG para o deployment atual, correlacionado pelo deployment.id.
+# Sai com 0 se "pass", 1 se "fail"/"warning"/"error" ou timeout.
 # Uso: wait-srg.sh <deploy|rollback>
 set -euo pipefail
 
 KIND="$1"
 source "$(dirname "$0")/lib.sh"
+DEPLOYMENT_ID="${GITHUB_RUN_ID}-${KIND}"
 TIMEOUT="${SRG_TIMEOUT_SECONDS:-600}"
 DEADLINE=$((SECONDS + TIMEOUT))
-# Horário de início do deploy/rollback; só resultados posteriores a ele valem.
-SINCE="${SRG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
-QUERY="fetch bizevents, from: now()-1h
-| filter event.provider == \"dynatrace.site.reliability.guardian\" and event.type == \"guardian.validation.finished\"
-| filter timestamp >= toTimestamp(\"${SINCE}\")
-| filter contains(toString(guardian.name), \"rollback-demo\")
+# Evento gravado pelo workflow do Dynatrace depois da validação do SRG.
+QUERY="fetch bizevents, from: now()-2h
+| filter event.type == \"rollback.demo.validation\"
+| filter deployment.id == \"${DEPLOYMENT_ID}\"
 | sort timestamp desc
 | limit 1
 | fields validation.status"
@@ -42,12 +41,12 @@ run_query() {
 while [ $SECONDS -lt $DEADLINE ]; do
   STATUS=$(run_query || true)
   case "$STATUS" in
-    pass) echo "SRG: pass"; exit 0 ;;
-    fail|warning|error) echo "SRG: $STATUS"; exit 1 ;;
+    pass) echo "SRG (${DEPLOYMENT_ID}): pass"; exit 0 ;;
+    fail|warning|error) echo "SRG (${DEPLOYMENT_ID}): ${STATUS}"; exit 1 ;;
   esac
-  echo "Aguardando resultado do SRG..."
+  echo "Aguardando resultado do SRG para ${DEPLOYMENT_ID}..."
   sleep 15
 done
 
-echo "SRG: timeout sem resultado (tratado como falha)"
+echo "SRG (${DEPLOYMENT_ID}): timeout sem resultado (tratado como falha)"
 exit 1

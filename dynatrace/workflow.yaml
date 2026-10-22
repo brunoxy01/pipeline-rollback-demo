@@ -1,5 +1,6 @@
-title: Rollback Demo - validar deploy e rollback com SRG
-description: Dispara o guardian rollback-demo-guardian quando o deploy ou o rollback do demo-app termina.
+id: 139dc282-cb07-4011-9fde-17d4eb8a9513
+title: "Rollback Demo | Validar saúde com SRG após deploy e rollback"
+description: Quando um deploy ou rollback do demo-app termina, aguarda o tráfego gerar métricas, valida a saúde com o guardian e registra o resultado com o deployment.id para a pipeline decidir sobre o rollback.
 private: false
 trigger:
   eventTrigger:
@@ -12,48 +13,89 @@ trigger:
         query: 'event.kind == "SDLC_EVENT" and event.category == "deployment" and event.type == "finished" and product == "rollback-demo"'
     uniqueExpression: null
 tasks:
-  wait_1:
-    name: wait_1
+  aguardar_metricas_1:
+    name: aguardar_metricas_1
     action: dynatrace.automations:run-javascript
-    description: Aguarda o trafego pos-deploy gerar metricas.
+    description: Espera o tráfego pós-deploy gerar métricas (parte 1 de 2).
     input:
       script: |
         export default async function () {
-          await new Promise((resolve) => setTimeout(resolve, 100000));
+          await new Promise((resolve) => setTimeout(resolve, 60000));
           return {};
         }
     position:
       x: 0
       "y": 1
     predecessors: []
-  wait_2:
-    name: wait_2
+  aguardar_metricas_2:
+    name: aguardar_metricas_2
     action: dynatrace.automations:run-javascript
-    description: Segunda espera (limite de execucao por tarefa).
+    description: Espera o tráfego pós-deploy gerar métricas (parte 2 de 2).
     input:
       script: |
         export default async function () {
-          await new Promise((resolve) => setTimeout(resolve, 100000));
+          await new Promise((resolve) => setTimeout(resolve, 60000));
           return {};
         }
     position:
       x: 0
       "y": 2
     predecessors:
-      - wait_1
-  run_validation:
-    name: run_validation
+      - aguardar_metricas_1
+  validar_saude_com_srg:
+    name: validar_saude_com_srg
     action: dynatrace.site.reliability.guardian:validate-guardian-action
-    description: Executa o guardian rollback-demo-guardian sobre os ultimos 3 minutos.
+    description: Executa o guardian "Rollback Demo | Saúde pós-deploy e pós-rollback" sobre os últimos 2 minutos.
     input:
       executionId: '{{ execution().id }}'
       objectId: vu9U3hXa3q0AAAABADFhcHA6ZHluYXRyYWNlLnNpdGUucmVsaWFiaWxpdHkuZ3VhcmRpYW46Z3VhcmRpYW5zAAZ0ZW5hbnQABnRlbmFudAAkN2M5YzQ3ZmYtMWRmZC0zMGUyLWFkMjUtMTM3ZTZiODMxODc4vu9U3hXa3q0
       timeframeInputType: timeframeSelector
       timeframeSelector:
-        from: now-3m
+        from: now-2m
         to: now
     position:
       x: 0
       "y": 3
     predecessors:
-      - wait_2
+      - aguardar_metricas_2
+  registrar_resultado:
+    name: registrar_resultado
+    action: dynatrace.automations:run-javascript
+    description: Grava o resultado do SRG com o deployment.id, que a pipeline usa para decidir sobre o rollback.
+    input:
+      script: |
+        import { execution } from '@dynatrace-sdk/automation-utils';
+        import { businessEventsClient } from '@dynatrace-sdk/client-classic-environment-v2';
+
+        export default async function ({ execution_id }) {
+          const ex = await execution(execution_id);
+          const event = ex.params.event;
+          const result = await ex.result('validar_saude_com_srg');
+
+          await businessEventsClient.ingest({
+            body: {
+              specversion: '1.0',
+              id: execution_id,
+              source: 'rollback-demo/srg-workflow',
+              type: 'rollback.demo.validation',
+              data: {
+                'deployment.id': event['deployment.id'],
+                'deployment.type': event['deployment.type'],
+                'release.version': event['release.version'],
+                'validation.id': result.validation_id,
+                'validation.status': result.validation_status,
+                'guardian.id': result.guardian_id,
+              },
+            },
+            type: 'application/cloudevent+json',
+          });
+          return { deployment_id: event['deployment.id'], status: result.validation_status };
+        }
+    position:
+      x: 0
+      "y": 4
+    predecessors:
+      - validar_saude_com_srg
+    conditions:
+      states:
+        validar_saude_com_srg: ANY

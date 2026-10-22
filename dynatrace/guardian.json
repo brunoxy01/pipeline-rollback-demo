@@ -1,12 +1,12 @@
 {
-  "name": "rollback-demo-guardian",
-  "description": "Valida a saude do demo-app apos deploy e apos rollback.",
+  "name": "Rollback Demo | Saúde pós-deploy e pós-rollback",
+  "description": "Valida a saúde do demo-app após cada deploy e após cada rollback da pipeline. Se reprovar, a pipeline reverte a versão; o resultado de cada validação alimenta a visão de quantidade e saúde dos rollbacks.",
   "tags": ["rollback-demo"],
   "variables": [],
   "objectives": [
     {
       "name": "Taxa de erro HTTP (%)",
-      "description": "Percentual de requisicoes com falha no demo-app durante a janela de validacao. Principal gatilho para o rollback.",
+      "description": "Percentual de requisições do demo-app que falharam na janela de validação. É o principal sinal de uma versão ruim: até 1% passa, entre 1% e 3% gera alerta e acima de 3% reprova e dispara o rollback.",
       "objectiveType": "DQL",
       "dqlQuery": "timeseries { errors = sum(dt.service.request.failure_count), total = sum(dt.service.request.count) },\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd error_rate = 100 * arraySum(errors) / arraySum(total)\n| fields error_rate",
       "comparisonOperator": "LESS_THAN_OR_EQUAL",
@@ -16,8 +16,8 @@
       "segments": []
     },
     {
-      "name": "Latencia p95 (ms)",
-      "description": "Tempo de resposta no percentil 95 do demo-app. Detecta regressao de performance mesmo sem erros.",
+      "name": "Latência p95 (ms)",
+      "description": "Tempo de resposta no percentil 95 do demo-app. Pega regressões de performance que não geram erro: até 500 ms passa, até 800 ms gera alerta e acima disso reprova a versão.",
       "objectiveType": "DQL",
       "dqlQuery": "timeseries p95 = percentile(dt.service.request.response_time, 95),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd p95_ms = arrayMax(p95) / 1000\n| fields p95_ms",
       "comparisonOperator": "LESS_THAN_OR_EQUAL",
@@ -28,7 +28,7 @@
     },
     {
       "name": "Throughput (req/min)",
-      "description": "Requisicoes por minuto recebidas pelo demo-app. Valor baixo indica servico fora do ar ou sem trafego, e reprova a validacao.",
+      "description": "Requisições por minuto recebidas pelo demo-app. Abaixo de 5 req/min indica serviço fora do ar ou sem tráfego; sem volume não dá para confiar nas outras métricas, então a validação reprova.",
       "objectiveType": "DQL",
       "dqlQuery": "timeseries req = sum(dt.service.request.count, rate: 1m),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd requests_per_min = arrayAvg(req)\n| fields requests_per_min",
       "comparisonOperator": "GREATER_THAN_OR_EQUAL",
@@ -37,8 +37,8 @@
       "segments": []
     },
     {
-      "name": "Uso de memoria (%)",
-      "description": "Pico de memoria em relacao ao limite de 128Mi do container. Detecta vazamento antes de causar OOMKill.",
+      "name": "Uso de memória (%)",
+      "description": "Pico de memória em relação ao limite de 128Mi do container. Antecipa vazamento ou consumo excessivo da nova versão antes de um OOMKill: até 80% passa, até 90% gera alerta e acima disso reprova.",
       "objectiveType": "DQL",
       "dqlQuery": "timeseries mem = avg(dt.kubernetes.container.memory_working_set),\n  filter: { k8s.namespace.name == \"rollback-demo\" and k8s.cluster.name == \"rollback-demo-cluster\" }\n| fieldsAdd mem_pct = arrayMax(mem) / (128 * 1024 * 1024) * 100\n| fields mem_pct",
       "comparisonOperator": "LESS_THAN_OR_EQUAL",

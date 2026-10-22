@@ -1,8 +1,10 @@
-name: pipeline
+name: Rollback Demo | Pipeline
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       fail_rate:
@@ -21,6 +23,7 @@ env:
 
 jobs:
   build:
+    name: Build e push da imagem
     runs-on: ubuntu-latest
     permissions: { contents: read, packages: write }
     steps:
@@ -37,6 +40,7 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ env.APP_VERSION }}
 
   test:
+    name: Testes
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -45,37 +49,36 @@ jobs:
         working-directory: app
 
   deploy:
+    name: Deploy, validação SRG e rollback
     needs: test
     runs-on: [self-hosted, rollback-demo]
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy
+      - name: Deploy do demo-app no k3s
         run: |
           scripts/send-sdlc-event.sh started deploy pending
           export IMAGE="${IMAGE}:${APP_VERSION}"
           kubectl apply -f k8s/namespace.yaml
           envsubst < k8s/deployment.yaml | kubectl apply -f -
           kubectl -n rollback-demo rollout status deploy/demo-app --timeout=180s
-          echo "SRG_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           scripts/send-sdlc-event.sh finished deploy success
       # O OneAgent só gera métricas de serviço se houver requisições.
-      - name: Gerar tráfego
+      - name: Gerar tráfego pós-deploy
         run: |
           IP=$(kubectl -n rollback-demo get svc demo-app -o jsonpath='{.spec.clusterIP}')
           end=$((SECONDS + ${TRAFFIC_SECONDS:-180}))
           while [ $SECONDS -lt $end ]; do curl -s -o /dev/null "http://${IP}/" || true; sleep 0.2; done
       # O evento SDLC dispara o workflow do Dynatrace que executa o SRG.
-      - name: Validar deploy com SRG
+      - name: Validar saúde pós-deploy (SRG)
         id: srg
         continue-on-error: true
         run: scripts/wait-srg.sh deploy
-      - name: Rollback
+      - name: Rollback automático (rollout undo)
         if: steps.srg.outcome == 'failure'
         run: |
           scripts/send-sdlc-event.sh started rollback pending
           kubectl -n rollback-demo rollout undo deploy/demo-app
           kubectl -n rollback-demo rollout status deploy/demo-app --timeout=180s
-          echo "SRG_SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           scripts/send-sdlc-event.sh finished rollback success
       - name: Gerar tráfego pós-rollback
         if: steps.srg.outcome == 'failure'
@@ -83,9 +86,9 @@ jobs:
           IP=$(kubectl -n rollback-demo get svc demo-app -o jsonpath='{.spec.clusterIP}')
           end=$((SECONDS + ${TRAFFIC_SECONDS:-180}))
           while [ $SECONDS -lt $end ]; do curl -s -o /dev/null "http://${IP}/" || true; sleep 0.2; done
-      - name: Validar rollback com SRG
+      - name: Validar saúde pós-rollback (SRG)
         if: steps.srg.outcome == 'failure'
         run: scripts/wait-srg.sh rollback
-      - name: Falhar pipeline se houve rollback
+      - name: Sinalizar rollback (falha o job de propósito)
         if: steps.srg.outcome == 'failure'
         run: exit 1
